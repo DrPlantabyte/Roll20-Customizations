@@ -81,14 +81,25 @@ pools and re-order the initiative from lowest to highest.
 
 Action Type              Chat Comand     Die Type
  Dash or Disengage        !act-run          1d6
- Weapon Attack            !act-weapon       1d8
+ Weapon Attack            !act-attack       1d8
  Use Item/Misc. Action    !act-other       1d10
  Cast a Spell             !act-spell       1d12
  Bonus Action             !act-bonus       +1d4
- Reset dice pool          !act-undo         --
+ Reset/remove dice pool   !act-rm           --
 ------------------------------------------------
  Roll dice pools          !act-roll
  Clear the tracker        !act-new
+
+For convenience, put the following macros on the bottom bar:
+Macro Name             Macro Value      All Players?
+ Turn: Dash/Disengage   !act-run          Yes
+ Turn: Attack           !act-attack       Yes
+ Turn: Use Item/Misc.   !act-other        Yes
+ Turn: Cast a Spell     !act-spell        Yes
+ Turn: + Bonus Action   !act-bonus        Yes
+ Turn: Undo             !act-rm           Yes
+ Turn: Roll initiative  !act-roll          No
+ Turn: New round        !act-new           No
 
 LARGE BATTLES
 If there are 8 or more independant combatants (either because there are a 
@@ -104,5 +115,225 @@ taken. This will keep the turn order a mystery without having to spend time
 declaring actions (though you should put a time limit on how long it takes 
 each person to decide what to do on their turn).
 
+
 ==============================================================================
 */
+
+var actionDiceData = {
+	run:{
+		display:"Dash/Disengage",
+		symbol:"\u21d6",
+		letter:"R",
+		dice:"1d6"
+	},
+	weapon:{
+		display:"Attack",
+		symbol:"\u2694",
+		letter:"A",
+		dice:"1d8"
+	},
+	other:{
+		display:"Use Item/Other",
+		symbol:"\u2615",
+		letter:"O",
+		dice:"1d10"
+	},
+	spell:{
+		display:"Cast a Spell",
+		symbol:"\u2606",
+		letter:"M",
+		dice:"1d12"
+	},
+	bonus:{
+		display:"+ Bonus Action",
+		symbol:"+",//"\u261d",
+		letter:"B",
+		dice:"1d4"
+	}
+}
+
+function debugPrint(some_text, msg_callback){
+	sendChat(msg_callback.who, "log: "+some_text)
+}
+/** Parses the letters of a turn custom data variable and returns a list of 
+objects representing declared turn actions */
+function getListOfActionsFromCustomString(c_str){
+	var actionList = new Array()
+	for(var index = 0; index < c_str.length; index++){
+		var substr = c_str.slice(index, index+1)
+		if( substr == actionDiceData.run.letter ){
+			actionList.push(actionDiceData.run)
+		} else if( substr == actionDiceData.weapon.letter ){
+			actionList.push(actionDiceData.weapon)
+		} else if( substr == actionDiceData.other.letter ){
+			actionList.push(actionDiceData.other)
+		} else if( substr == actionDiceData.spell.letter ){
+			actionList.push(actionDiceData.spell)
+		} else if( substr == actionDiceData.bonus.letter ){
+			actionList.push(actionDiceData.bonus)
+		}
+	}
+	return actionList
+}
+
+/** Returns the turn list without the token's turn entry */
+function removeTokenTurn(token_id, turn_list){
+	var turn_list2 = new Array()
+	for(var i = 0; i < turn_list.length; i++){
+		if(turn_list[i].id != token_id){
+			turn_list2.push(turn_list[i])
+		}
+	}
+	return turn_list2
+}
+/** Gets the turn corresponding from the provided list, or simply makes a 
+new turn object if the list does not have a turn for that token */
+function getTokenTurnFromList(token_id, turn_list){
+	for(var i = 0; i < turn_list.length; i++){
+		if(turn_list[i].id == token_id){
+			return turn_list[i]
+		}
+	}
+	var new_turn = {}
+	new_turn.id = token_id
+	new_turn.pr = "?"
+	new_turn.custom = ""
+	return new_turn
+}
+function prependToList(item, list){
+	var list2 = new Array()
+	list2.push(item)
+	for(var i = 0; i < list.length; i++){
+		list2.push(list[i])
+	}
+	return list2
+}
+
+// TODO: chat message when a player's turn comes up
+on("chat:message", function(msg) {
+	if(msg.type == "api" ){
+		var msgText = msg.content.trim();
+		if(msgText.lastIndexOf("!act-",0) === 0) {
+			debugPrint("Testing...", msg)
+			debugPrint(actionDiceData.run.symbol+actionDiceData.weapon.symbol+actionDiceData.other.symbol+actionDiceData.spell.symbol+actionDiceData.bonus.symbol, msg)
+			var currentPageID = Campaign().get('playerpageid')
+			var turnorder;
+			if(Campaign().get("turnorder") == ""){
+				//NOTE: We check to make sure that the turnorder isn't just 
+				// an empty string first. If it is treat it like an empty array.
+				turnorder = []; 
+			} else {
+				turnorder = JSON.parse(Campaign().get("turnorder"));
+			}
+			/*
+			Turn-order objects:
+			{ "id":"letters-and-numbers", "pr":<number or string>, "custom":"", "_pageid":"more-letters-and-numbers" }
+			_pageid will not alwyays be present
+			*/
+			if(msgText.lastIndexOf("!act-new",0) === 0) {
+				// erase turn tracker for new round of initiative dice
+				turnorder = []
+				Campaign().set("turnorder", JSON.stringify(turnorder))
+				return
+			}
+			if(msgText.lastIndexOf("!act-roll",0) === 0) {
+				for(var n = 0; n < turnorder.length; n++){
+					var tokenTurn = turnorder[n]
+					if(typeof tokenTurn.custom === 'undefined') {
+						continue
+					}
+					var actionList = getListOfActionsFromCustomString(tokenTurn.custom)
+					if(actionList.length == 0){
+						continue
+					}
+					var diceExpression = ""
+					for(var d = 0; d < actionList.length; d++){
+						if(d > 0){
+							diceExpression = diceExpression + " + "
+						}
+						diceExpression = diceExpression + actionList[d].dice
+					}
+					// figure out who is making this roll
+					var tokenCharacterName = "Combatant"
+					var tokenID = tokenTurn.id
+					var tokenObj = getObj("graphic", tokenID)
+					if(tokenObj != null && tokenObj != ""){
+						if(tokenObj.get("name") != ""){
+							tokenCharacterName = tokenObj.get("name")
+						} else if(tokenObj.get("represents") != "") {
+							var c = getObj("character", tokenObj.get("represents"))
+							if(c != null ){
+								tokenCharacterName = c.get("name")
+							}
+						}
+					}
+					sendChat(tokenCharacterName, "/roll [Initiative: ] " + diceExpression, function(ops) {
+// ops will be an ARRAY of command results.
+var rollresult = ops[0];
+// TODO: callback madness
+					})
+				}
+				// TODO: roll the dice and re-arrange the turn list
+				return
+			}
+			var tokenSelection = msg.selected
+			if(typeof tokenSelection !== 'undefined') {
+				for(var tokenIndex = 0; tokenIndex < tokenSelection.length; tokenIndex++){
+					token = tokenSelection[tokenIndex]
+					/*
+					Token object:
+					{ "_id":"letters-and-numbers", "_type":"graphic" }
+					_id is the same string as the id in the turn order object
+					*/
+					tokenID = token._id
+					debugPrint(JSON.stringify(token), msg)
+					
+					debugPrint("turn list:" + JSON.stringify(turnorder), msg)
+					debugPrint("Page ID: " + currentPageID, msg)
+					var tokenTurn = getTokenTurnFromList(tokenID, turnorder)
+					turnorder = removeTokenTurn(tokenID, turnorder)
+					if(typeof tokenTurn.custom === 'undefined') {
+						tokenTurn.custom = ""
+					}
+					var hasBonusAction = false
+					if(tokenTurn.custom.indexOf(actionDiceData.bonus.letter) >= 0) {
+						hasBonusAction = true
+					}
+					// resolve command
+					var addDicePoolAction = false
+					if(msgText.lastIndexOf("!act-run",0) === 0) {
+						tokenTurn.custom = actionDiceData.run.letter
+						tokenTurn.pr = actionDiceData.run.symbol
+						addDicePoolAction = true
+					} else if(msgText.lastIndexOf("!act-attack",0) === 0) {
+						tokenTurn.custom = actionDiceData.weapon.letter
+						tokenTurn.pr = actionDiceData.weapon.symbol
+						addDicePoolAction = true
+					} else if(msgText.lastIndexOf("!act-other",0) === 0) {
+						tokenTurn.custom = actionDiceData.other.letter
+						tokenTurn.pr = actionDiceData.other.symbol
+						addDicePoolAction = true
+					} else if(msgText.lastIndexOf("!act-spell",0) === 0) {
+						tokenTurn.custom = actionDiceData.spell.letter
+						tokenTurn.pr = actionDiceData.spell.symbol
+						addDicePoolAction = true
+					} else if(msgText.lastIndexOf("!act-bonus",0) === 0) {
+						hasBonusAction = true
+						addDicePoolAction = true
+					} else if(msgText.lastIndexOf("!act-rm",0) === 0) {
+						Campaign().set("turnorder", JSON.stringify(turnorder))
+					}
+					// add token turn
+					if(addDicePoolAction === true){
+						if(hasBonusAction === true){
+							tokenTurn.custom = tokenTurn.custom + actionDiceData.bonus.letter
+							tokenTurn.pr = tokenTurn.pr + actionDiceData.bonus.symbol
+						}
+						turnorder = prependToList(tokenTurn, turnorder)
+						Campaign().set("turnorder", JSON.stringify(turnorder))
+					}
+				}
+			}
+		}
+	}
+})
