@@ -151,6 +151,23 @@ var actionDiceData = {
 		dice:"1d4"
 	}
 }
+/*
+Turn-order object format:
+{ 
+	"id":"token ID", 
+	"pr":"<number>:<symbols>", 
+	"custom":"AB#number" 
+}
+"pr" will show just the symbols that the owner has declared until the 
+initiative action dice have been rolls, at which point the initiative roll 
+result will be prepixed onto "pr" sucjh that the format will be the roll 
+result, a colon, and the action symbols
+
+"custom" will hold the letters corresponding to the declared actions (one 
+letter per action). After the initiative has been rolled, then the '#' 
+symbol will be added and the roll result plus a random fraction will be added 
+after the letters
+*/
 
 function debugPrint(some_text, msg_callback){
 	sendChat(msg_callback.who, "log: "+some_text)
@@ -176,6 +193,20 @@ function getListOfActionsFromCustomString(c_str){
 	return actionList
 }
 
+function nameOfToken(tokenObj){
+	var tokenCharacterName = "Combatant"
+	if(tokenObj != null ){
+		if(tokenObj.get("name") != ""){
+			tokenCharacterName = tokenObj.get("name")
+		} else if(tokenObj.get("represents") != "") {
+			var c = getObj("character", tokenObj.get("represents"))
+			if(c != null ){
+				tokenCharacterName = c.get("name")
+			}
+		}
+	}
+	return tokenCharacterName
+}
 /** Returns the turn list without the token's turn entry */
 function removeTokenTurn(token_id, turn_list){
 	var turn_list2 = new Array()
@@ -196,7 +227,7 @@ function getTokenTurnFromList(token_id, turn_list){
 	}
 	var new_turn = {}
 	new_turn.id = token_id
-	new_turn.pr = "?"
+	new_turn.pr = ""
 	new_turn.custom = ""
 	return new_turn
 }
@@ -208,8 +239,145 @@ function prependToList(item, list){
 	}
 	return list2
 }
+function symbolForDie(numSides){
+	var diceSymbols = [".","|","\u25CE",
+	"\u25B3","\u25B3", // d4
+	"\u25A2","\u25A2", // d6
+	"\u25CA","\u25CA", // d8
+	"\u25C7","\u25C7", // d10
+	"\u2B20","\u2B20", // d12
+	"\u2B21","\u2B21","\u2B21","\u2B21","\u2B21","\u2B21","\u2B21","\u2B21", // d20
+	"\u2B6E"// d?
+	]
+	if(numSides >= 0 && numSides < diceSymbols.length){
+		return diceSymbols[numSides]
+	} else {
+		return diceSymbols[diceSymbols.length-1]
+	}
+}
+function rollObjectToString(diceRollChatObject){
+	var rolls = diceRollChatObject.rolls
+	var textOutput1 = ""
+	for(var k = 0; k < rolls.length; k++){
+		if(rolls[k].type == "R"){
+			var die = rolls[k]
+			textOutput1 += die.dice
+			textOutput1 += "d"
+			textOutput1 += die.sides
+			textOutput1 += "["
+			for(var w = 0; w < die.results.length; w++){
+				if(w != 0){textOutput2 += "+"}
+				//textOutput1 += symbolForDie(die.sides)
+				textOutput1 += die.results[w].v
+			}
+			textOutput1 += "]"
+		} else if(rolls[k].type == "M"){
+			var op = rolls[k].expr
+			textOutput1 += op
+		}
+	}
+	return textOutput1
+}
 
-// TODO: chat message when a player's turn comes up
+function stringHash(s) {
+	var hash = 0, i, charc;
+	if (s.length == 0) return hash;
+	for (i = 0, l = s.length; i < l; i++) {
+		charc = s.charCodeAt(i);
+		hash = ((hash << 5) - hash) + charc;
+		hash |= 0; // Convert to 32bit integer
+	}
+	return hash;
+};
+
+function setTokenInitiativeAndSort(tokenID, initValue){
+	if(Campaign().get("turnorder") == ""){
+		return
+	}
+	var turnorder = JSON.parse(Campaign().get("turnorder"));
+	for(var i = 0; i < turnorder.length; i++){
+		if(turnorder[i].id == tokenID){
+			var tieBreakerValue = Math.random()
+			turnorder[i].custom = turnorder[i].custom + "#" + initValue + tieBreakerValue
+			turnorder[i].pr = initValue + ":" + turnorder[i].pr
+			break;
+		}
+	}
+	turnorder.sort(function(a, b) {
+		var va = -1
+		if(typeof a.custom === 'string' ){
+			var ia = a.custom.lastIndexOf("#")
+			if(ia >= 0){
+				va = parseFloat(a.custom.slice(ia + 1))
+			}
+		}
+		if( va === -1){
+			va = 100 * stringHash(""+a.custom)
+		}
+		var vb = -1
+		if(typeof b.custom === 'string' ){
+			var ib = b.custom.lastIndexOf("#")
+			if(ib >= 0){
+				vb = parseFloat(b.custom.slice(ib + 1))
+			}
+		}
+		if( vb === -1){
+			vb = 100 * stringHash(""+b.custom)
+		}
+		return va - vb
+	})
+	Campaign().set("turnorder", JSON.stringify(turnorder))
+}
+function makeTurnMessage(turnObj){
+	if(typeof turnObj.custom === "string"){
+		var actionList = getListOfActionsFromCustomString(turnObj.custom)
+		if(actionList.length == 0){
+			return ""
+		}
+		var tmsg = ""
+		for(var ad = 0; ad < actionList.length; ad++){
+			if(ad > 0){
+				tmsg = tmsg + ", "
+			}
+			tmsg += actionList[ad].symbol
+			tmsg += " "
+			tmsg += actionList[ad].display
+		}
+		return tmsg
+	} else {
+		return ""
+	}
+}
+
+function showTurnMessage(turnObject){
+	// TODO: clean-up appearance
+	// TODO: Fix first turn being shown twice
+	// TODO: make more robust with error handling
+	var turnMessage = makeTurnMessage(turnObject)
+	var tokenObj = getObj("graphic", turnObject.id)
+	var name = nameOfToken(tokenObj)
+	var imageURL = tokenObj.get("imgsrc")
+	
+	var fPart = "<div style='box-shadow: 3px 3px 2px #888888; font-family: Verdana; text-shadow: 2px 2px #000; text-align: center; vertical-align: middle; padding: 1px 1px; margin-top: 0.1em; border: 1px solid #000; border-radius: 8px 8px 8px 8px; color: #FFFFFF;"
+	var tPic = fPart + "background-color:#666666;'>" + name + "'s Turn!</div>";
+	var Pic = fPart + "background-color:#AAAAAA;'><img src='" + imageURL + "'><br>";
+	sendChat('', "/direct " + tPic + Pic+"<b>Actions:</b> "+turnMessage+"</div>")
+}
+
+on("change:campaign:turnorder", function(){
+	// NOTE: this event occurs AFTER the turn order has been adjusted by 
+	// clicking the "next turn" button
+	if(Campaign().get("turnorder") == ""){
+		// empty turn order queue
+		return 
+	} else {
+		var turnorder = JSON.parse(Campaign().get("turnorder"));
+		var newTurn = turnorder[0]
+		showTurnMessage(newTurn)
+		turnorder.pop()
+		Campaign().set("turnorder", JSON.stringify(turnorder))
+	}
+})
 on("chat:message", function(msg) {
 	if(msg.type == "api" ){
 		var msgText = msg.content.trim();
@@ -237,13 +405,24 @@ on("chat:message", function(msg) {
 				return
 			}
 			if(msgText.lastIndexOf("!act-roll",0) === 0) {
+				// async IO via callbacks has its down sides, like when 
+				// you want to do something only after all issued callbacks
+				// have completed and your library didn't anticipate/support
+				// this kind of specificity, and you don't know how many 
+				// callbacks you are going to generate until after you make 
+				// the last one
+				___async_done_count = 0
+				___async_target_count = turnorder.length
+				
 				for(var n = 0; n < turnorder.length; n++){
 					var tokenTurn = turnorder[n]
 					if(typeof tokenTurn.custom === 'undefined') {
+						___async_target_count--
 						continue
 					}
 					var actionList = getListOfActionsFromCustomString(tokenTurn.custom)
 					if(actionList.length == 0){
+						___async_target_count--
 						continue
 					}
 					var diceExpression = ""
@@ -258,22 +437,31 @@ on("chat:message", function(msg) {
 					var tokenID = tokenTurn.id
 					var tokenObj = getObj("graphic", tokenID)
 					if(tokenObj != null && tokenObj != ""){
-						if(tokenObj.get("name") != ""){
-							tokenCharacterName = tokenObj.get("name")
-						} else if(tokenObj.get("represents") != "") {
-							var c = getObj("character", tokenObj.get("represents"))
-							if(c != null ){
-								tokenCharacterName = c.get("name")
-							}
-						}
+						tokenCharacterName = nameOfToken(tokenObj)
 					}
-					sendChat(tokenCharacterName, "/roll [Initiative: ] " + diceExpression, function(ops) {
+					
+					var encapsulate = function(name, tid){
+						// scope resolution conflict hackery
+						sendChat(name, "/roll " + diceExpression, function(ops) {
+___async_done_count += 1
 // ops will be an ARRAY of command results.
-var rollresult = ops[0];
-// TODO: callback madness
-					})
+var rollObject = JSON.parse(ops[0].content)
+debugPrint("Roll result array: "+JSON.stringify(rollObject), msg)
+var rollResult = rollObject.total
+sendChat(name, "Initiative roll: " + rollObjectToString(rollObject) + " = " + rollResult)
+setTokenInitiativeAndSort(tid, rollResult)
+if(___async_done_count == ___async_target_count){
+	// last shuffle of the turn order
+	// show first turn message
+	var turnorder = JSON.parse(Campaign().get("turnorder"));
+	if(turnorder != "" && turnorder.length > 0){
+		showTurnMessage(turnorder[0])
+	}
+}
+						})
+					};
+					encapsulate(tokenCharacterName, tokenID); // JS doesn't make callbacks inside of loops easy to do
 				}
-				// TODO: roll the dice and re-arrange the turn list
 				return
 			}
 			var tokenSelection = msg.selected
@@ -292,7 +480,8 @@ var rollresult = ops[0];
 					debugPrint("Page ID: " + currentPageID, msg)
 					var tokenTurn = getTokenTurnFromList(tokenID, turnorder)
 					turnorder = removeTokenTurn(tokenID, turnorder)
-					if(typeof tokenTurn.custom === 'undefined') {
+					if(typeof tokenTurn.custom === 'undefined' 
+							|| typeof tokenTurn.custom === 'number') {
 						tokenTurn.custom = ""
 					}
 					var hasBonusAction = false
@@ -325,7 +514,7 @@ var rollresult = ops[0];
 					}
 					// add token turn
 					if(addDicePoolAction === true){
-						if(hasBonusAction === true){
+						if(hasBonusAction === true && tokenTurn.custom.indexOf(actionDiceData.bonus.letter) < 0){
 							tokenTurn.custom = tokenTurn.custom + actionDiceData.bonus.letter
 							tokenTurn.pr = tokenTurn.pr + actionDiceData.bonus.symbol
 						}
