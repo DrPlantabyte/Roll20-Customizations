@@ -379,6 +379,7 @@ function makeTurnMessage(turnObj){
 }
 
 function showTurnMessage(turnObject){
+	// TODO: make dice rolls more fancy
 	// TODO: make more robust with error handling
 	// TODO: code clean-up
 	if(turnObject.custom == null || turnObject.custom == ""){
@@ -395,7 +396,7 @@ function showTurnMessage(turnObject){
 	var name = nameOfToken(tokenObj)
 	var imageURL = tokenObj.get("imgsrc")
 	
-	var htmlTemplate = "<div style='border-radius: 15px; background: #aaaaff; padding: 10px;' > <b style='text-align: center'><u>${NAME}'s turn!</u></b> <table border='0'><tr><td> <img src='${IMGURL}' style='display: block; max-width:72px; max-height:72px; width: auto; height: auto;'> </td><td> <b>Actions:</b><br> ${MESSAGE} </td></tr></table> </div>";
+	var htmlTemplate = "<div style='border-radius: 15px; background: #aaaaff; padding: 10px;' > <b><u>${NAME}'s turn!</u></b> <table border='0'><tr><td> <img src='${IMGURL}' style='display: block; max-width:72px; max-height:72px; width: auto; height: auto;'> </td><td> <b>Actions:</b><br> ${MESSAGE} </td></tr></table> </div>";
 	sendChat('', "/direct " + htmlTemplate.replace("${NAME}",name).replace("${IMGURL}",imageURL).replace("${MESSAGE}",turnMessage))
 }
 
