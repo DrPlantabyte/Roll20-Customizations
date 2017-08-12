@@ -171,9 +171,6 @@ symbol will be added and the roll result plus a random fraction will be added
 after the letters
 */
 
-function debugPrint(some_text, msg_callback){
-	sendChat(msg_callback.who, "log: "+some_text)
-}
 /** Parses the letters of a turn custom data variable and returns a list of 
 objects representing declared turn actions */
 function getListOfActionsFromCustomString(c_str){
@@ -452,7 +449,7 @@ function makeTurnMessage(turnObj){
 function showTurnMessage(turnObject){
 	// TODO: make more robust with error handling
 	// TODO: code clean-up
-	if(turnObject.custom == null || turnObject.custom == ""){
+	if(turnObject == null || turnObject == "" || typeof turnObject.custom === 'undefined' || turnObject.custom == null || turnObject.custom == ""){
 		return
 	}
 	var turnMessage = makeTurnMessage(turnObject)
@@ -465,24 +462,46 @@ function showTurnMessage(turnObject){
 	}
 	var name = nameOfToken(tokenObj)
 	var imageURL = tokenObj.get("imgsrc")
-	
+	var pageID = tokenObj.get("_pageid")
+	var x, y
+	try{
+		x = tokenObj.get("left") + Math.floor(0.5 * tokenObj.get("width"))
+		y = tokenObj.get("top") + Math.floor(0.5 * tokenObj.get("height"))
+	}catch(err){
+		x = 0
+		y = 0
+	}
+	if(pageID != null && pageID != ""){
+		sendPing(x, y, pageID)
+	}
 	var htmlTemplate = "<div style='border-radius: 15px; background: #aaaaff; padding: 10px;' > <b><u>${NAME}</u>'s turn!</b> <table border='0'><tr><td> <img src='${IMGURL}' style='display: block; max-width:72px; max-height:72px; width: auto; height: auto;'> </td><td> <b>Actions:</b><br> ${MESSAGE} </td></tr></table> </div>";
 	sendChat('Next', "/direct " + htmlTemplate.replace("${NAME}",name).replace("${IMGURL}",imageURL).replace("${MESSAGE}",turnMessage))
 }
 
+var __last_turnorder_size = 0;
+
 on("change:campaign:turnorder", function(){
 	// NOTE: this event occurs AFTER the turn order has been adjusted by 
-	// clicking the "next turn" button
-	if(Campaign().get("turnorder") == ""){
+	// clicking the "next turn" button or the "add turn" menu item
+	var turnorder;
+	var turnorderString = Campaign().get("turnorder")
+	if(turnorderString == null || turnorderString == ""){
 		// empty turn order queue
-		return 
+		turnorder = [] 
 	} else {
-		var turnorder = JSON.parse(Campaign().get("turnorder"));
+		turnorder = JSON.parse(turnorderString);
+	}
+	if(__last_turnorder_size == turnorder.length){
+		// next turn operation
 		var newTurn = turnorder[0]
 		showTurnMessage(newTurn)
 		turnorder.pop()
 		Campaign().set("turnorder", JSON.stringify(turnorder))
+	} else {
+		// added a new turn or deleted an old one
 	}
+	// store number of turns for future reference
+	__last_turnorder_size = turnorder.length
 })
 on("chat:message", function(msg) {
 	if(msg.type == "api" ){
@@ -497,8 +516,6 @@ on("chat:message", function(msg) {
 			isGM = true // hopefully someday there will be a GM check API
 		}
 		if(msgText.lastIndexOf("!init ",0) === 0) {
-			debugPrint("Testing...", msg)
-			debugPrint(actionDiceData.run.symbol+actionDiceData.weapon.symbol+actionDiceData.other.symbol+actionDiceData.spell.symbol+actionDiceData.bonus.symbol, msg)
 			var currentPageID = Campaign().get('playerpageid')
 			var turnorder;
 			if(Campaign().get("turnorder") == ""){
@@ -592,17 +609,19 @@ try{
 			var tokenSelection = msg.selected
 			if(typeof tokenSelection !== 'undefined') {
 				for(var tokenIndex = 0; tokenIndex < tokenSelection.length; tokenIndex++){
-					token = tokenSelection[tokenIndex]
+					var token = tokenSelection[tokenIndex]
 					/*
 					Token object:
 					{ "_id":"letters-and-numbers", "_type":"graphic" }
 					_id is the same string as the id in the turn order object
 					*/
-					tokenID = token._id
-					debugPrint(JSON.stringify(token), msg)
+					var tokenID = token._id
+					var tokenObj = getObj("graphic", tokenID)
+					if(tokenObj.get("layer") == "map"){
+						// NOT A TOKEN!
+						continue
+					}
 					
-					debugPrint("turn list:" + JSON.stringify(turnorder), msg)
-					debugPrint("Page ID: " + currentPageID, msg)
 					var tokenTurn = getTokenTurnFromList(tokenID, turnorder)
 					turnorder = removeTokenTurn(tokenID, turnorder)
 					if(typeof tokenTurn.custom === 'undefined' 
