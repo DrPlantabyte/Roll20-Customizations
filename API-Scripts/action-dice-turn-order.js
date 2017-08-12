@@ -497,6 +497,9 @@ actiondice.showTurnMessage = function(turnObject){
 }
 
 actiondice.onTurnOrderChange = function(){
+	if(actiondice.__enabled == false){
+		return
+	}
 	// NOTE: this event occurs AFTER the turn order has been adjusted by 
 	// clicking the "next turn" button or the "add turn" menu item
 	// or after manual edits
