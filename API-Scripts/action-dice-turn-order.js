@@ -73,33 +73,33 @@ from 1 and resolves each combatant's turn when their number is called.
 On Roll20.net, this API script provides chat commands for doing the same as 
 described above (the GM should setup macros for the players such that the 
 choices appear as buttons on the bottom of the app screen). At the start of a 
-round, the GM will use the !act-new command to clear the initiative tracker. 
+round, the GM will use the !init new command to clear the initiative tracker. 
 Then everyone selects a token and uses the appropriate commands to add their 
 declared actions (as plain text) to the initiative tracker. After they are 
-all declared, the GM issues the !act-roll to automatically roll all the dice 
+all declared, the GM issues the !init roll to automatically roll all the dice 
 pools and re-order the initiative from lowest to highest.
 
 Action Type              Chat Comand     Die Type
- Dash or Disengage        !act-run          1d6
- Weapon Attack            !act-attack       1d8
- Use Item/Misc. Action    !act-other       1d10
- Cast a Spell             !act-spell       1d12
- Bonus Action             !act-bonus       +1d4
- Reset/remove dice pool   !act-rm           --
+ Dash or Disengage        !init run          1d6
+ Weapon Attack            !init attack       1d8
+ Use Item/Misc. Action    !init other       1d10
+ Cast a Spell             !init spell       1d12
+ Bonus Action             !init bonus       +1d4
+ Reset/remove dice pool   !init rm           --
 ------------------------------------------------
- Roll dice pools          !act-roll
- Clear the tracker        !act-new
+ Roll dice pools          !init roll
+ Clear the tracker        !init new
 
 For convenience, put the following macros on the bottom bar:
 Macro Name             Macro Value      All Players?
- Turn: Dash/Disengage   !act-run          Yes
- Turn: Attack           !act-attack       Yes
- Turn: Use Item/Misc.   !act-other        Yes
- Turn: Cast a Spell     !act-spell        Yes
- Turn: + Bonus Action   !act-bonus        Yes
- Turn: Undo             !act-rm           Yes
- Turn: Roll initiative  !act-roll          No
- Turn: New round        !act-new           No
+ Turn: Dash/Disengage   !init run          Yes
+ Turn: Attack           !init attack       Yes
+ Turn: Use Item/Misc.   !init other        Yes
+ Turn: Cast a Spell     !init spell        Yes
+ Turn: + Bonus Action   !init bonus        Yes
+ Turn: Undo             !init rm           Yes
+ Turn: Roll initiative  !init roll          No
+ Turn: New round        !init new           No
 
 LARGE BATTLES
 If there are 8 or more independant combatants (either because there are a 
@@ -150,9 +150,9 @@ var actionDiceData = {
 		letter:"B",
 		dice:"1d4"
 	}
-}
-var startOfRoundLabel = "Start of Round"
-var endOfRoundLabel = "End of Round"
+};
+var startOfRoundLabel = "Start of Round";
+var endOfRoundLabel = "End of Round";
 /*
 Turn-order object format:
 { 
@@ -250,6 +250,49 @@ function symbolForDie(numSides){
 	}
 }
 function rollObjectToString(diceRollChatObject){
+	/* Example object:
+{
+  "type": "V",
+  "rolls": [
+    {
+      "type": "L",
+      "text": "☆"
+    },
+    {
+      "type": "R",
+      "dice": 1,
+      "sides": 12,
+      "mods": {},
+      "results": [
+        {
+          "v": 11
+        }
+      ]
+    },
+    {
+      "type": "M",
+      "expr": "+"
+    },
+    {
+      "type": "L",
+      "text": "+"
+    },
+    {
+      "type": "R",
+      "dice": 1,
+      "sides": 4,
+      "mods": {},
+      "results": [
+        {
+          "v": 3
+        }
+      ]
+    }
+  ],
+  "resultType": "sum",
+  "total": 14
+}
+	*/
 	var rolls = diceRollChatObject.rolls
 	var textOutput1 = ""
 	for(var k = 0; k < rolls.length; k++){
@@ -258,19 +301,41 @@ function rollObjectToString(diceRollChatObject){
 			textOutput1 += die.dice
 			textOutput1 += "d"
 			textOutput1 += die.sides
-			textOutput1 += "["
+			textOutput1 += " = ["
 			for(var w = 0; w < die.results.length; w++){
 				if(w != 0){textOutput2 += "+"}
 				//textOutput1 += symbolForDie(die.sides)
 				textOutput1 += die.results[w].v
 			}
 			textOutput1 += "]"
-		} else if(rolls[k].type == "M"){
+		/*} else if(rolls[k].type == "M"){
 			var op = rolls[k].expr
-			textOutput1 += op
+			textOutput1 += op //*/
+		} else if(rolls[k].type == "L"){
+			var op = rolls[k].text
+			textOutput1 += "<br>" + op
 		}
 	}
 	return textOutput1
+}
+
+function showDiceRoll(diceRollChatObject, tokenID){
+	var htmlTemplate = "<div style='border-radius: 15px; background: #aaffaa; padding: 10px;' > <b><u>${NAME}</u> rolls for initiative:</b> <table border='0'><tr><td> <img src='${IMGURL}' style='display: block; max-width:72px; max-height:72px; width: auto; height: auto;'> </td><td> ${ROLLS} <br><br><b>Total:</b> ${TOTAL} </td></tr></table> </div>"
+	var rolls = rollObjectToString(diceRollChatObject)
+	var totalResult = diceRollChatObject.total
+	var tokenObj = getObj("graphic", tokenID)
+	var name = ""
+	var imageURL
+	if(tokenObj == null || tokenObj == ""){
+		imageURL = "https://app.roll20.net/images/achievements/seemerollin.png"
+	} else {
+		name = nameOfToken(tokenObj)
+		imageURL = tokenObj.get("imgsrc")
+	}
+	if(name == null || name == ""){
+		name = "Combatant"
+	}
+	sendChat('Rolling initiative dice', "/direct " + htmlTemplate.replace("${NAME}",name).replace("${IMGURL}",imageURL).replace("${ROLLS}",rolls).replace("${TOTAL}",totalResult))
 }
 
 function stringHash(s) {
@@ -291,6 +356,13 @@ function setTokenInitiative(tokenID, initValue){
 	var turnorder = JSON.parse(Campaign().get("turnorder"));
 	for(var i = 0; i < turnorder.length; i++){
 		if(turnorder[i].id == tokenID){
+			if(typeof turnorder[i].custom === 'string' && typeof turnorder[i].pr === 'string' && turnorder[i].pr.indexOf(":") >= 0 && turnorder[i].custom.indexOf("#") >= 0){
+				// already rolled, replace existing
+				var i1 = turnorder[i].custom.indexOf("#")
+				var i2 = turnorder[i].pr.lastIndexOf(":")
+				turnorder[i].custom = turnorder[i].custom.slice(0,i1)
+				turnorder[i].pr = turnorder[i].pr.slice(i2+1)
+			}
 			var tieBreakerValue = Math.random()
 			turnorder[i].custom = turnorder[i].custom + "#" + initValue + tieBreakerValue
 			turnorder[i].pr = initValue + ":" + turnorder[i].pr
@@ -377,9 +449,7 @@ function makeTurnMessage(turnObj){
 		return ""
 	}
 }
-
 function showTurnMessage(turnObject){
-	// TODO: make dice rolls more fancy
 	// TODO: make more robust with error handling
 	// TODO: code clean-up
 	if(turnObject.custom == null || turnObject.custom == ""){
@@ -396,8 +466,8 @@ function showTurnMessage(turnObject){
 	var name = nameOfToken(tokenObj)
 	var imageURL = tokenObj.get("imgsrc")
 	
-	var htmlTemplate = "<div style='border-radius: 15px; background: #aaaaff; padding: 10px;' > <b><u>${NAME}'s turn!</u></b> <table border='0'><tr><td> <img src='${IMGURL}' style='display: block; max-width:72px; max-height:72px; width: auto; height: auto;'> </td><td> <b>Actions:</b><br> ${MESSAGE} </td></tr></table> </div>";
-	sendChat('', "/direct " + htmlTemplate.replace("${NAME}",name).replace("${IMGURL}",imageURL).replace("${MESSAGE}",turnMessage))
+	var htmlTemplate = "<div style='border-radius: 15px; background: #aaaaff; padding: 10px;' > <b><u>${NAME}</u>'s turn!</b> <table border='0'><tr><td> <img src='${IMGURL}' style='display: block; max-width:72px; max-height:72px; width: auto; height: auto;'> </td><td> <b>Actions:</b><br> ${MESSAGE} </td></tr></table> </div>";
+	sendChat('Next', "/direct " + htmlTemplate.replace("${NAME}",name).replace("${IMGURL}",imageURL).replace("${MESSAGE}",turnMessage))
 }
 
 on("change:campaign:turnorder", function(){
@@ -426,7 +496,7 @@ on("chat:message", function(msg) {
 		} else {
 			isGM = true // hopefully someday there will be a GM check API
 		}
-		if(msgText.lastIndexOf("!act-",0) === 0) {
+		if(msgText.lastIndexOf("!init ",0) === 0) {
 			debugPrint("Testing...", msg)
 			debugPrint(actionDiceData.run.symbol+actionDiceData.weapon.symbol+actionDiceData.other.symbol+actionDiceData.spell.symbol+actionDiceData.bonus.symbol, msg)
 			var currentPageID = Campaign().get('playerpageid')
@@ -443,13 +513,13 @@ on("chat:message", function(msg) {
 			{ "id":"letters-and-numbers", "pr":<number or string>, "custom":"", "_pageid":"more-letters-and-numbers" }
 			_pageid will not alwyays be present
 			*/
-			if(msgText.lastIndexOf("!act-new",0) === 0 && isGM == true) {
+			if(msgText.lastIndexOf("!init new",0) === 0 && isGM == true) {
 				// erase turn tracker for new round of initiative dice
 				turnorder = []
 				Campaign().set("turnorder", JSON.stringify(turnorder))
 				return
 			}
-			if(msgText.lastIndexOf("!act-roll",0) === 0 && isGM == true) {
+			if(msgText.lastIndexOf("!init roll",0) === 0 && isGM == true) {
 				// async IO via callbacks has its down sides, like when 
 				// you want to do something only after all issued callbacks
 				// have completed and your library didn't anticipate/support
@@ -470,12 +540,21 @@ on("chat:message", function(msg) {
 						___async_target_count--
 						continue
 					}
+					if(tokenTurn.custom.indexOf("#") >= 0){
+						// Already rolled! Remove previous roll data
+						var hi = tokenTurn.custom.indexOf("#")
+						tokenTurn.custom = tokenTurn.custom.slice(0,hi)
+						hi = tokenTurn.pr.indexOf(":")
+						if(hi >= 0){
+							tokenTurn.pr = tokenTurn.pr.slice(hi+1)
+						}
+					}
 					var diceExpression = ""
 					for(var d = 0; d < actionList.length; d++){
 						if(d > 0){
 							diceExpression = diceExpression + " + "
 						}
-						diceExpression = diceExpression + actionList[d].dice
+						diceExpression = diceExpression + "[" + actionList[d].symbol + "]" + actionList[d].dice
 					}
 					// figure out who is making this roll
 					var tokenCharacterName = "Combatant"
@@ -489,16 +568,20 @@ on("chat:message", function(msg) {
 						// scope resolution conflict hackery
 						sendChat(name, "/roll " + diceExpression, function(ops) {
 ___async_done_count += 1
-// ops will be an ARRAY of command results.
-var rollObject = JSON.parse(ops[0].content)
-debugPrint("Roll result array: "+JSON.stringify(rollObject), msg)
-var rollResult = rollObject.total
-sendChat(name, "Initiative roll: " + rollObjectToString(rollObject) + " = " + rollResult)
-setTokenInitiative(tid, rollResult)
-if(___async_done_count == ___async_target_count){
-	// shuffle of the turn order
-	// show first turn message
-	sortTurnOrder(true)
+try{
+	// ops will be an ARRAY of command results.
+	var rollObject = JSON.parse(ops[0].content)
+	var rollResult = rollObject.total
+	showDiceRoll(rollObject, tid)
+	setTokenInitiative(tid, rollResult)
+}catch(err){
+	sendChat("Error", ""+err)
+}finally{
+	if(___async_done_count == ___async_target_count){
+		// shuffle of the turn order
+		// show first turn message
+		sortTurnOrder(true)
+	}
 }
 						})
 					};
@@ -532,26 +615,26 @@ if(___async_done_count == ___async_target_count){
 					}
 					// resolve command
 					var addDicePoolAction = false
-					if(msgText.lastIndexOf("!act-run",0) === 0) {
+					if(msgText.lastIndexOf("!init run",0) === 0) {
 						tokenTurn.custom = actionDiceData.run.letter
 						tokenTurn.pr = actionDiceData.run.symbol
 						addDicePoolAction = true
-					} else if(msgText.lastIndexOf("!act-attack",0) === 0) {
+					} else if(msgText.lastIndexOf("!init attack",0) === 0) {
 						tokenTurn.custom = actionDiceData.weapon.letter
 						tokenTurn.pr = actionDiceData.weapon.symbol
 						addDicePoolAction = true
-					} else if(msgText.lastIndexOf("!act-other",0) === 0) {
+					} else if(msgText.lastIndexOf("!init other",0) === 0) {
 						tokenTurn.custom = actionDiceData.other.letter
 						tokenTurn.pr = actionDiceData.other.symbol
 						addDicePoolAction = true
-					} else if(msgText.lastIndexOf("!act-spell",0) === 0) {
+					} else if(msgText.lastIndexOf("!init spell",0) === 0) {
 						tokenTurn.custom = actionDiceData.spell.letter
 						tokenTurn.pr = actionDiceData.spell.symbol
 						addDicePoolAction = true
-					} else if(msgText.lastIndexOf("!act-bonus",0) === 0) {
+					} else if(msgText.lastIndexOf("!init bonus",0) === 0) {
 						hasBonusAction = true
 						addDicePoolAction = true
-					} else if(msgText.lastIndexOf("!act-rm",0) === 0) {
+					} else if(msgText.lastIndexOf("!init rm",0) === 0) {
 						Campaign().set("turnorder", JSON.stringify(turnorder))
 					}
 					// add token turn
