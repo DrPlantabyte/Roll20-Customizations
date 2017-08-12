@@ -89,6 +89,8 @@ Action Type              Chat Comand     Die Type
 ------------------------------------------------
  Roll dice pools          !init roll
  Clear the tracker        !init new
+ Disable this module      !init disable
+ Enable this module       !init enable
 
 For convenience, put the following macros on the bottom bar:
 Macro Name             Macro Value      All Players?
@@ -119,7 +121,10 @@ each person to decide what to do on their turn).
 ==============================================================================
 */
 
-var actionDiceData = {
+// module pattern (with procedural construction)
+var actiondice = {}
+
+actiondice.actionDiceData = {
 	run:{
 		display:"Dash/Disengage",
 		symbol:"\u21d6",
@@ -151,11 +156,12 @@ var actionDiceData = {
 		dice:"1d4"
 	}
 };
-var startOfRoundLabel = "Start of Round";
-var endOfRoundLabel = "End of Round";
-var silentTurnData = "   ";
-var __last_turnorder_size = 0;
-var __last_turn_id = "-1"
+actiondice.startOfRoundLabel = "Start of Round";
+actiondice.endOfRoundLabel = "End of Round";
+actiondice.silentTurnData = "   ";
+actiondice.__last_turnorder_size = 0;
+actiondice.__last_turn_id = "-1"
+actiondice.__enabled = true
 /*
 Turn-order object format:
 { 
@@ -176,26 +182,26 @@ after the letters
 
 /** Parses the letters of a turn custom data variable and returns a list of 
 objects representing declared turn actions */
-function getListOfActionsFromCustomString(c_str){
+actiondice.getListOfActionsFromCustomString = function(c_str){
 	var actionList = new Array()
 	for(var index = 0; index < c_str.length; index++){
 		var substr = c_str.slice(index, index+1)
-		if( substr == actionDiceData.run.letter ){
-			actionList.push(actionDiceData.run)
-		} else if( substr == actionDiceData.weapon.letter ){
-			actionList.push(actionDiceData.weapon)
-		} else if( substr == actionDiceData.other.letter ){
-			actionList.push(actionDiceData.other)
-		} else if( substr == actionDiceData.spell.letter ){
-			actionList.push(actionDiceData.spell)
-		} else if( substr == actionDiceData.bonus.letter ){
-			actionList.push(actionDiceData.bonus)
+		if( substr == actiondice.actionDiceData.run.letter ){
+			actionList.push(actiondice.actionDiceData.run)
+		} else if( substr == actiondice.actionDiceData.weapon.letter ){
+			actionList.push(actiondice.actionDiceData.weapon)
+		} else if( substr == actiondice.actionDiceData.other.letter ){
+			actionList.push(actiondice.actionDiceData.other)
+		} else if( substr == actiondice.actionDiceData.spell.letter ){
+			actionList.push(actiondice.actionDiceData.spell)
+		} else if( substr == actiondice.actionDiceData.bonus.letter ){
+			actionList.push(actiondice.actionDiceData.bonus)
 		}
 	}
 	return actionList
 }
 /** gets the name of a token object */
-function nameOfToken(tokenObj){
+actiondice.nameOfToken = function(tokenObj){
 	var tokenCharacterName = "Combatant"
 	try{
 		if(tokenObj != null ){
@@ -214,7 +220,7 @@ function nameOfToken(tokenObj){
 	return tokenCharacterName
 }
 /** Returns the turn list without the token's turn entry */
-function removeTokenTurn(token_id, turn_list){
+actiondice.removeTokenTurn = function(token_id, turn_list){
 	var turn_list2 = new Array()
 	for(var i = 0; i < turn_list.length; i++){
 		if(turn_list[i].id != token_id){
@@ -225,7 +231,7 @@ function removeTokenTurn(token_id, turn_list){
 }
 /** Gets the turn corresponding from the provided list, or simply makes a 
 new turn object if the list does not have a turn for that token */
-function getTokenTurnFromList(token_id, turn_list){
+actiondice.getTokenTurnFromList = function(token_id, turn_list){
 	for(var i = 0; i < turn_list.length; i++){
 		if(turn_list[i].id == token_id){
 			return turn_list[i]
@@ -238,7 +244,7 @@ function getTokenTurnFromList(token_id, turn_list){
 	return new_turn
 }
 
-function rollObjectToString(diceRollChatObject){
+actiondice.rollObjectToString = function(diceRollChatObject){
 	/* Example object:
 {
   "type": "V",
@@ -310,12 +316,12 @@ function rollObjectToString(diceRollChatObject){
 	return textOutput1
 }
 /** Puts a fancy bubble in the chat log showing the results of the initiative dice roll */
-function showDiceRoll(diceRollChatObject, tokenID){
+actiondice.showDiceRoll = function(diceRollChatObject, tokenID){
 	var htmlTemplate = "<div style='border-radius: 15px; background: #aaffaa; padding: 10px;' > <b><u>${NAME}</u> rolls for initiative:</b> <table border='0'><tr><td> <img src='${IMGURL}' style='display: block; max-width:70px; max-height:70px; width: auto; height: auto;'> </td><td> ${ROLLS} <br><br><b>Total:</b> ${TOTAL} </td></tr></table> </div>"
-	var rolls = rollObjectToString(diceRollChatObject)
+	var rolls = actiondice.rollObjectToString(diceRollChatObject)
 	var totalResult = diceRollChatObject.total
 	var tokenObj = getObj("graphic", tokenID)
-	var name = nameOfToken(tokenObj)
+	var name = actiondice.nameOfToken(tokenObj)
 	var imageURL
 	if(tokenObj == null || tokenObj == ""){
 		imageURL = "https://app.roll20.net/images/achievements/seemerollin.png"
@@ -325,7 +331,7 @@ function showDiceRoll(diceRollChatObject, tokenID){
 	sendChat('Rolling initiative dice', "/direct " + htmlTemplate.replace("${NAME}",name).replace("${IMGURL}",imageURL).replace("${ROLLS}",rolls).replace("${TOTAL}",totalResult))
 }
 /** hashes a string */
-function stringHash(s) {
+actiondice.stringHash = function(s) {
 	try{
 		// if it is a number, return that
 		var number = Math.ceil(parseFloat(s))
@@ -343,7 +349,7 @@ function stringHash(s) {
 	}
 };
 /** sets the inititative data for a specified token in the turn order */
-function setTokenInitiative(tokenID, initValue){
+actiondice.setTokenInitiative = function(tokenID, initValue){
 	if(Campaign().get("turnorder") == ""){
 		return
 	}
@@ -367,7 +373,7 @@ function setTokenInitiative(tokenID, initValue){
 }
 /** Sorts the turn order list from lowest roll to highest. If addRoundLabels 
 is true, then the start of turn and end of turn labels will be added. */
-function sortTurnOrder(addRoundLabels){
+actiondice.sortTurnOrder = function(addRoundLabels){
 	if(Campaign().get("turnorder") == ""){
 		return
 	}
@@ -379,7 +385,7 @@ function sortTurnOrder(addRoundLabels){
 	turnorder.sort(function(a, b) {
 		var va = -1
 		if(typeof a.custom === 'undefined' || a.custom == null || a.custom == ""){
-			va = stringHash(""+a.pr)
+			va = actiondice.stringHash(""+a.pr)
 		} else {
 			if(typeof a.custom === 'string' ){
 				var ia = a.custom.lastIndexOf("#")
@@ -388,12 +394,12 @@ function sortTurnOrder(addRoundLabels){
 				}
 			}
 			if( va === -1){
-				va = 100 * stringHash(""+a.custom)
+				va = 100 * actiondice.stringHash(""+a.custom)
 			}
 		}
 		var vb = -1
 		if(typeof b.custom === 'undefined' || b.custom == null || b.custom == ""){
-			vb = stringHash(""+b.pr)
+			vb = actiondice.stringHash(""+b.pr)
 		} else {
 			if(typeof b.custom === 'string' ){
 				var ib = b.custom.lastIndexOf("#")
@@ -402,7 +408,7 @@ function sortTurnOrder(addRoundLabels){
 				}
 			}
 			if( vb === -1){
-				vb = 100 * stringHash(""+b.custom)
+				vb = 100 * actiondice.stringHash(""+b.custom)
 			}
 		}
 		return va - vb
@@ -410,13 +416,13 @@ function sortTurnOrder(addRoundLabels){
 	if(addRoundLabels == true){
 		var startLabel = { 
 			"id":"-1", 
-			"pr":startOfRoundLabel, 
-			"custom":silentTurnData 
+			"pr":actiondice.startOfRoundLabel, 
+			"custom":actiondice.silentTurnData 
 		}
 		var endLabel = { 
 			"id":"-1", 
-			"pr":endOfRoundLabel, 
-			"custom":silentTurnData 
+			"pr":actiondice.endOfRoundLabel, 
+			"custom":actiondice.silentTurnData 
 		}
 		
 		var tempArray = new Array()
@@ -424,7 +430,7 @@ function sortTurnOrder(addRoundLabels){
 		// remove left-over end of turn labels first
 		for(var ii = 0; ii < turnorder.length; ii++){
 			var t = turnorder[ii]
-			if(t.pr == startOfRoundLabel || t.pr == endOfRoundLabel){
+			if(t.pr == actiondice.startOfRoundLabel || t.pr == actiondice.endOfRoundLabel){
 				// skip this one
 			} else {
 				tempArray.push(t)
@@ -434,13 +440,13 @@ function sortTurnOrder(addRoundLabels){
 		turnorder = tempArray
 	}
 	Campaign().set("turnorder", JSON.stringify(turnorder))
-	__last_turnorder_size = turnorder.length
-	__last_turn_id = turnorder[0].id
+	actiondice.__last_turnorder_size = turnorder.length
+	actiondice.__last_turn_id = turnorder[0].id
 }
 /** makes the html content of a turn message */
-function makeTurnMessage(turnObj){
+actiondice.makeTurnMessage = function(turnObj){
 	if(typeof turnObj.custom === "string" && turnObj.custom != ""){
-		var actionList = getListOfActionsFromCustomString(turnObj.custom)
+		var actionList = actiondice.getListOfActionsFromCustomString(turnObj.custom)
 		if(actionList.length == 0){
 			return ""
 		}
@@ -460,12 +466,12 @@ function makeTurnMessage(turnObj){
 	}
 }
 /** shows a fancy 'your turn' bubble in the chat log */
-function showTurnMessage(turnObject){
+actiondice.showTurnMessage = function(turnObject){
 	// TODO: module pattern
-	if(turnObject == null || turnObject == "" || typeof turnObject.custom === 'undefined' || turnObject.custom == silentTurnData){
+	if(turnObject == null || turnObject == "" || typeof turnObject.custom === 'undefined' || turnObject.custom == actiondice.silentTurnData){
 		return
 	}
-	var turnMessage = makeTurnMessage(turnObject)
+	var turnMessage = actiondice.makeTurnMessage(turnObject)
 	if(typeof turnObject.id === 'undefined'){
 		return
 	}
@@ -473,7 +479,7 @@ function showTurnMessage(turnObject){
 	if(tokenObj == null || tokenObj == ""){
 		return
 	}
-	var name = nameOfToken(tokenObj)
+	var name = actiondice.nameOfToken(tokenObj)
 	var imageURL = tokenObj.get("imgsrc")
 	var pageID = tokenObj.get("_pageid")
 	var x, y
@@ -490,8 +496,7 @@ function showTurnMessage(turnObject){
 	sendChat('Next', "/direct " + htmlTemplate.replace("${NAME}",name).replace("${IMGURL}",imageURL).replace("${MESSAGE}",turnMessage))
 }
 
-
-on("change:campaign:turnorder", function(){
+actiondice.onTurnOrderChange = function(){
 	// NOTE: this event occurs AFTER the turn order has been adjusted by 
 	// clicking the "next turn" button or the "add turn" menu item
 	// or after manual edits
@@ -503,12 +508,12 @@ on("change:campaign:turnorder", function(){
 	} else {
 		turnorder = JSON.parse(turnorderString);
 	}
-	if(__last_turnorder_size == turnorder.length){
+	if(actiondice.__last_turnorder_size == turnorder.length){
 		// next turn operation or manual edit
-		if(__last_turn_id != turnorder[0].id){
+		if(actiondice.__last_turn_id != turnorder[0].id){
 			// next turn operation
 			var newTurn = turnorder[0]
-			showTurnMessage(newTurn)
+			actiondice.showTurnMessage(newTurn)
 			turnorder.pop()
 			Campaign().set("turnorder", JSON.stringify(turnorder))
 		}
@@ -516,14 +521,16 @@ on("change:campaign:turnorder", function(){
 		// added a new turn or deleted an old one
 	}
 	// store number of turns for future reference
-	__last_turnorder_size = turnorder.length
+	actiondice.__last_turnorder_size = turnorder.length
 	if(turnorder.length > 0){
-		__last_turn_id = turnorder[0].id
+		actiondice.__last_turn_id = turnorder[0].id
 	} else {
-		__last_turn_id = "-1"
+		actiondice.__last_turn_id = "-1"
 	}
-})
-on("chat:message", function(msg) {
+}
+
+actiondice.onChatMessage = function(msg){
+	
 	if(msg.type == "api" ){
 		var msgText = msg.content.trim();
 		var issuer = getObj("player", msg.playerid)
@@ -534,6 +541,17 @@ on("chat:message", function(msg) {
 			isGM = true // hopefully someday there will be a GM check API
 		} else {
 			isGM = true // hopefully someday there will be a GM check API
+		}
+		if(msgText.lastIndexOf("!init disable",0) === 0) {
+			actiondice.__enabled = false
+			return
+		}
+		if(msgText.lastIndexOf("!init enable",0) === 0) {
+			actiondice.__enabled = true
+			return
+		}
+		if(actiondice.__enabled == false){
+			return
 		}
 		if(msgText.lastIndexOf("!init ",0) === 0) {
 			var currentPageID = Campaign().get('playerpageid')
@@ -572,7 +590,7 @@ on("chat:message", function(msg) {
 						___async_target_count--
 						continue
 					}
-					var actionList = getListOfActionsFromCustomString(tokenTurn.custom)
+					var actionList = actiondice.getListOfActionsFromCustomString(tokenTurn.custom)
 					if(actionList.length == 0){
 						___async_target_count--
 						continue
@@ -598,7 +616,7 @@ on("chat:message", function(msg) {
 					var tokenID = tokenTurn.id
 					var tokenObj = getObj("graphic", tokenID)
 					if(tokenObj != null && tokenObj != ""){
-						tokenCharacterName = nameOfToken(tokenObj)
+						tokenCharacterName = actiondice.nameOfToken(tokenObj)
 					}
 					
 					var encapsulate = function(name, tid){
@@ -609,15 +627,15 @@ try{
 	// ops will be an ARRAY of command results.
 	var rollObject = JSON.parse(ops[0].content)
 	var rollResult = rollObject.total
-	showDiceRoll(rollObject, tid)
-	setTokenInitiative(tid, rollResult)
+	actiondice.showDiceRoll(rollObject, tid)
+	actiondice.setTokenInitiative(tid, rollResult)
 }catch(err){
 	sendChat("Error", ""+err)
 }finally{
 	if(___async_done_count == ___async_target_count){
 		// shuffle of the turn order
 		// show first turn message
-		sortTurnOrder(true)
+		actiondice.sortTurnOrder(true)
 	}
 }
 						})
@@ -642,33 +660,33 @@ try{
 						continue
 					}
 					
-					var tokenTurn = getTokenTurnFromList(tokenID, turnorder)
-					turnorder = removeTokenTurn(tokenID, turnorder)
+					var tokenTurn = actiondice.getTokenTurnFromList(tokenID, turnorder)
+					turnorder = actiondice.removeTokenTurn(tokenID, turnorder)
 					if(typeof tokenTurn.custom === 'undefined' 
 							|| typeof tokenTurn.custom === 'number') {
 						tokenTurn.custom = ""
 					}
 					var hasBonusAction = false
-					if(tokenTurn.custom.indexOf(actionDiceData.bonus.letter) >= 0) {
+					if(tokenTurn.custom.indexOf(actiondice.actionDiceData.bonus.letter) >= 0) {
 						hasBonusAction = true
 					}
 					// resolve command
 					var addDicePoolAction = false
 					if(msgText.lastIndexOf("!init run",0) === 0) {
-						tokenTurn.custom = actionDiceData.run.letter
-						tokenTurn.pr = actionDiceData.run.symbol
+						tokenTurn.custom = actiondice.actionDiceData.run.letter
+						tokenTurn.pr = actiondice.actionDiceData.run.symbol
 						addDicePoolAction = true
 					} else if(msgText.lastIndexOf("!init attack",0) === 0) {
-						tokenTurn.custom = actionDiceData.weapon.letter
-						tokenTurn.pr = actionDiceData.weapon.symbol
+						tokenTurn.custom = actiondice.actionDiceData.weapon.letter
+						tokenTurn.pr = actiondice.actionDiceData.weapon.symbol
 						addDicePoolAction = true
 					} else if(msgText.lastIndexOf("!init other",0) === 0) {
-						tokenTurn.custom = actionDiceData.other.letter
-						tokenTurn.pr = actionDiceData.other.symbol
+						tokenTurn.custom = actiondice.actionDiceData.other.letter
+						tokenTurn.pr = actiondice.actionDiceData.other.symbol
 						addDicePoolAction = true
 					} else if(msgText.lastIndexOf("!init spell",0) === 0) {
-						tokenTurn.custom = actionDiceData.spell.letter
-						tokenTurn.pr = actionDiceData.spell.symbol
+						tokenTurn.custom = actiondice.actionDiceData.spell.letter
+						tokenTurn.pr = actiondice.actionDiceData.spell.symbol
 						addDicePoolAction = true
 					} else if(msgText.lastIndexOf("!init bonus",0) === 0) {
 						hasBonusAction = true
@@ -679,9 +697,9 @@ try{
 					// add token turn
 					if(addDicePoolAction === true){
 						// handle bonus actions (don't want duplicates)
-						if(hasBonusAction === true && tokenTurn.custom.indexOf(actionDiceData.bonus.letter) < 0){
-							tokenTurn.custom = tokenTurn.custom + actionDiceData.bonus.letter
-							tokenTurn.pr = tokenTurn.pr + actionDiceData.bonus.symbol
+						if(hasBonusAction === true && tokenTurn.custom.indexOf(actiondice.actionDiceData.bonus.letter) < 0){
+							tokenTurn.custom = tokenTurn.custom + actiondice.actionDiceData.bonus.letter
+							tokenTurn.pr = tokenTurn.pr + actiondice.actionDiceData.bonus.symbol
 						}
 						// update turn order
 						turnorder.push(tokenTurn)
@@ -691,4 +709,10 @@ try{
 			}
 		}
 	}
-})
+}
+
+
+on("ready", function() {
+	on("chat:message", actiondice.onChatMessage );
+	on("change:campaign:turnorder", actiondice.onTurnOrderChange)
+});
