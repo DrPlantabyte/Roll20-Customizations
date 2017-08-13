@@ -139,7 +139,7 @@ actiondice.actionDiceData = {
 	},
 	other:{
 		display:"Use Item/Other",
-		symbol:"\u2615",
+		symbol:"\u26B1",
 		letter:"O",
 		dice:"1d10"
 	},
